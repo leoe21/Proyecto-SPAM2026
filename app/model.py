@@ -30,7 +30,17 @@ def load_model() -> Tuple[Any, Any]:
             _model_type = 'sklearn'
             return _model, _model_type
         except Exception:
-            # fallback to HF if joblib load fails
+            _model = None
+            _model_type = None
+
+    # fallback: transformers pipeline
+    if _model is None:
+        try:
+            from transformers import pipeline
+            MODEL_NAME = "Goodmotion/spam-mail-classifier"
+            _model = pipeline("text-classification", model=MODEL_NAME, tokenizer=MODEL_NAME)
+            _model_type = 'hf'
+        except Exception:
             _model = None
             _model_type = None
 

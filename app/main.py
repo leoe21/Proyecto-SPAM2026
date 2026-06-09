@@ -22,8 +22,18 @@ if st.button("Predict"):
 st.markdown("---")
 st.markdown("### Example from dataset")
 try:
-    with open('SMSSpamCollection','r',encoding='utf-8') as f:
-        sample = f.readline().strip()
-    st.write(sample)
+    from pathlib import Path
+    base = Path(__file__).resolve().parent.parent
+    dataset_path = None
+    for candidate in [base / 'SMSSpamCollection', base / 'data' / 'SMSSpamCollection']:
+        if candidate.exists():
+            dataset_path = candidate
+            break
+    if dataset_path:
+        with open(dataset_path, 'r', encoding='utf-8') as f:
+            sample = f.readline().strip()
+        st.write(sample)
+    else:
+        st.write("Dataset file not found. Run `python scripts/copy_dataset.py` to prepare data.")
 except Exception:
-    st.write("Dataset file not found in repository root. Run `python scripts/copy_dataset.py` to prepare data.")
+    st.write("Could not load dataset example.")

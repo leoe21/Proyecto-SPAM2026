@@ -90,3 +90,5 @@ watchdog==6.0.0
 wcwidth==0.8.0
 webencodings==0.5.1
 websockets==16.0
+transformers
+torch
