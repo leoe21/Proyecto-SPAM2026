@@ -20,8 +20,9 @@ if st.button("Predict"):
         st.write("**Confidence:** {:.2%}".format(score))
 
 st.markdown("---")
-st.markdown("### Example from dataset")
+st.markdown("### Examples from dataset")
 try:
+    import random
     from pathlib import Path
     base = Path(__file__).resolve().parent.parent
     dataset_path = None
@@ -31,9 +32,15 @@ try:
             break
     if dataset_path:
         with open(dataset_path, 'r', encoding='utf-8') as f:
-            sample = f.readline().strip()
-        st.write(sample)
+            lines = f.readlines()
+        samples = random.sample(lines, min(5, len(lines)))
+        for line in samples:
+            parts = line.strip().split('\t', 1)
+            if len(parts) == 2:
+                label, msg = parts
+                color = "🔴" if label == "spam" else "🟢"
+                st.write(f"{color} **{label.upper()}**: {msg}")
     else:
-        st.write("Dataset file not found. Run `python scripts/copy_dataset.py` to prepare data.")
+        st.write("Dataset not found.")
 except Exception:
-    st.write("Could not load dataset example.")
+    st.write("Could not load dataset examples.")
