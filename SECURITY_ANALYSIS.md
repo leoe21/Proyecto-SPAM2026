@@ -329,3 +329,210 @@ This project demonstrates **why privacy-preserving ML matters**:
 The SMS spam detection case shows both the power of ML (97% accuracy) and the necessity of privacy-preserving approaches for ethical, compliant systems.
 
 **Key takeaway**: Security and privacy are not optional—they're fundamental to responsible AI.
+
+---
+
+---
+
+# ESPAÑOL — Análisis de Seguridad y Privacidad
+
+**Contexto**: Este documento complementa el Jupyter notebook con el análisis de seguridad relevante para el curso "Hackeando la IA" de ICESI.
+
+---
+
+## 1. Arquitectura Actual: Entrenamiento Centralizado
+
+### Flujo de Datos
+
+```
+SMSSpamCollection (archivo local)
+        ↓
+    [EDA & Análisis] ← notebook/analysis.ipynb
+        ↓
+[Entrenar TF-IDF + LogReg] ← sklearn.Pipeline
+        ↓
+models/baseline_model.pkl (221 KB)
+        ↓
+[App Streamlit] ← app/main.py (predicciones en tiempo real)
+        ↓
+Predicciones del usuario (registradas en logs)
+```
+
+### Riesgos de Seguridad en el Entrenamiento Centralizado
+
+| Riesgo | Severidad | Descripción |
+|--------|-----------|-------------|
+| **Brecha de Datos** | 🔴 ALTO | Los 5.572 SMS almacenados en un único archivo sin cifrar |
+| **Sin Control de Acceso** | 🔴 ALTO | Cualquiera con acceso al repositorio puede leer todos los SMS |
+| **Deserialización Pickle (RCE)** | 🔴 ALTO | `joblib.load()` ejecuta código arbitrario si el `.pkl` es reemplazado por un atacante — ataque a la cadena de suministro del modelo (OWASP ML Top 10: ML06) |
+| **Inversión del Modelo** | 🟠 MEDIO | Un atacante puede consultar el modelo para recuperar datos de entrenamiento |
+| **Sin Registro de Auditoría** | 🟠 MEDIO | No hay log de quién accedió a los datos ni cuándo |
+| **Violación de Privacidad** | 🟠 MEDIO | Los SMS contienen PII (números de teléfono, información personal) |
+
+---
+
+## 2. Análisis de Robustez del Modelo
+
+### 2.1 Brecha de Recall: 78.5% (33 Falsos Negativos)
+
+**Hallazgo**: El baseline sklearn falla en el 22% de los mensajes spam reales.
+
+```
+Matriz de Confusión (conjunto de prueba, n=1115):
+                Predicho
+Real       Ham    Spam
+Ham        966     0      ← Perfecto (sin falsos positivos)
+Spam        33    116     ← 33 spam no detectados (falsos negativos)
+```
+
+**Impacto**:
+- ❌ Usuarios reciben SMS maliciosos sin advertencia
+- ✅ Tasa de falsos positivos muy baja (buena experiencia de usuario)
+- ⚠️ Trade-off: elegir precisión o recall según el caso de uso
+
+**Estrategia de Mejora**:
+- Bajar el umbral de clasificación (de 0.5 a 0.3)
+- Usar métodos de ensemble (Random Forest, XGBoost)
+- Implementar aprendizaje activo (humano en el ciclo)
+
+### 2.2 Desajuste de Dominio: Riesgo del Fallback HF
+
+**Hallazgo**: El modelo HF (fallback) fue entrenado con emails, no con SMS.
+
+```
+Baseline (sklearn): Entrenado en SMS → ~97% accuracy en SMS (esperado)
+Fallback (HF):      Entrenado en emails → Accuracy desconocida en SMS (esperada menor)
+```
+
+**Riesgo**: Si sklearn falla silenciosamente, la app usa HF sin que el usuario lo sepa.
+
+**Mitigación**:
+- ✅ `model.py` registra en logs qué modelo se carga
+- ✅ La app muestra en la barra lateral cuál modelo está activo
+- ✅ Advertencia explícita si HF está activo
+
+### 2.3 Sin Robustez Adversarial
+
+**Hallazgo**: El modelo NO fue probado contra entradas adversariales.
+
+**Ejemplos Adversariales**:
+```
+Original: "FREE MONEY CALL NOW"
+Evasión:  "FR33 M0N3Y C4LL N0W"
+          "FREE ... MONEY ... CALL ... NOW" (inserción de espacios)
+          "FrEe mOnEy CaLl NoW" (mayúsculas mezcladas)
+```
+
+**Impacto real**: Los spammers usan estas técnicas. El modelo fallará.
+
+**Mejora**:
+- Implementar entrenamiento adversarial
+- Evaluación de robustez (ataques FGSM, PGD)
+- Normalización de caracteres en el preprocesamiento
+
+---
+
+## 3. Soluciones que Preservan la Privacidad: Federated Learning + Differential Privacy
+
+### 3.1 Problema: El Entrenamiento Centralizado Viola la Privacidad
+
+**Estado actual**: Todos los SMS en `SMSSpamCollection` → Punto único de fallo
+
+**Riesgo de cumplimiento**:
+- ❌ GDPR: No procesa datos de forma mínima (almacena todos los SMS)
+- ❌ CCPA: Los usuarios no pueden optar por no participar
+- ❌ Regulaciones locales: Los SMS pueden ser comunicaciones reguladas
+
+### 3.2 Solución 1: Federated Learning (FL)
+
+**Cómo funciona**:
+
+```
+Paso 1: El servidor central inicializa el modelo
+        modelo_v0 → Dispositivo 1, Dispositivo 2, Dispositivo 3
+
+Paso 2: Cada dispositivo entrena con datos LOCALES (nunca enviados al servidor)
+        Dispositivo 1: SMS_local → actualización_1
+        Dispositivo 2: SMS_local → actualización_2
+        Dispositivo 3: SMS_local → actualización_3
+
+Paso 3: El agregador combina las actualizaciones → modelo mejorado
+        modelo_v1 = Agregar(actualización_1, actualización_2, actualización_3)
+
+Paso 4: Repetir hasta convergencia
+```
+
+**Beneficios**:
+- ✅ Los datos nunca salen de los dispositivos (privacidad por diseño)
+- ✅ Cumple con GDPR (el usuario mantiene el control)
+- ✅ Escala a millones de dispositivos
+- ✅ Robustez inherente (sin punto único de fallo)
+
+**Ejemplos del mundo real**:
+- 🍎 Apple: Federated Learning para predicción de teclado
+- 📱 Google: Federated Learning para teclado (Gboard)
+- 📨 WhatsApp: Usa agregación segura + FL para detección de spam
+
+### 3.3 Solución 2: Differential Privacy (DP)
+
+**Problema con FL solo**: El servidor agrega actualizaciones del modelo → puede invertirlas para recuperar datos individuales
+
+**Solución DP**: Agregar ruido a las actualizaciones antes de la agregación
+
+```
+Actualización individual: [0.1, 0.05, -0.02, 0.03, ...]
++ Ruido gaussiano:        [±0.001, ±0.001, ±0.001, ...]
+= Actualización con ruido: [0.101, 0.049, -0.021, 0.031, ...]
+```
+
+**Garantía matemática**: privacidad diferencial (ε, δ)
+
+**Beneficios**:
+- ✅ Garantía de privacidad demostrable (prueba matemática)
+- ✅ Escala a número arbitrario de usuarios
+- ✅ Robusto contra ataques de inferencia
+
+---
+
+## 4. Lista de Verificación de Seguridad para Producción
+
+### Protección de Datos
+- [ ] Cifrar datos en reposo (AES-256)
+- [ ] Cifrar datos en tránsito (TLS 1.3)
+- [ ] Implementar Federated Learning (sin datos centralizados)
+- [ ] Aplicar Differential Privacy (seguimiento de ε, δ)
+
+### Seguridad del Modelo
+- [ ] Control de versiones para modelos
+- [ ] Verificaciones de integridad (hashes SHA-256)
+- [ ] Monitorear drift del modelo
+- [ ] Pruebas de robustez adversarial
+- [ ] Reentrenamiento regular del modelo
+
+### Control de Acceso
+- [ ] Autenticación (claves API, OAuth 2.0)
+- [ ] Autorización (control de acceso basado en roles)
+- [ ] Limitación de tasa (100 solicitudes/hora de base)
+- [ ] Lista blanca de IPs
+- [ ] Registro de auditoría (todos los accesos)
+
+### Monitoreo e Incidentes
+- [ ] Monitoreo en tiempo real de predicciones
+- [ ] Alertas en patrones anómalos
+- [ ] Plan de respuesta a incidentes
+- [ ] Auditorías de seguridad regulares
+- [ ] Pruebas de penetración
+
+---
+
+## 5. Conclusión
+
+Este proyecto demuestra **por qué el ML que preserva la privacidad es importante**:
+
+1. **Estado actual** (centralizado) = vulnerable a brechas de datos
+2. **Estado futuro** (FL + DP) = privado y seguro de forma demostrable
+3. **Impacto real** = miles de millones de usuarios dependen de estas técnicas
+
+El caso de detección de spam en SMS muestra tanto el poder del ML (97% de accuracy) como la necesidad de enfoques que preserven la privacidad para sistemas éticos y conformes con la normativa.
+
+**Conclusión clave**: La seguridad y la privacidad no son opcionales — son fundamentales para una IA responsable.
